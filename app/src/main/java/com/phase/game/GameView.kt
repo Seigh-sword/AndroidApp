@@ -536,8 +536,10 @@ class GameView @JvmOverloads constructor(
         if (player.x > W - player.r) { player.x = W - player.r; player.vx = -abs(player.vx) * 0.4f }
         if (player.y > groundY - player.r) {
             player.y = groundY - player.r
-            player.vy = -H * 0.55f
-            spawnTrail(6, if (phase == Phase.LIGHT) colLightB else colDarkB)
+            if (player.vy > 0f) {
+                player.vy = 0f
+                onPlatform = true
+            }
         }
         if (player.y < player.r) { player.y = player.r; player.vy = abs(player.vy) * 0.4f }
 
@@ -768,10 +770,32 @@ class GameView @JvmOverloads constructor(
 
         canvas.restoreToCount(save)
 
+        // Phase-tinted edge glow (vignette that pulses on the beat)
+        drawEdgeGlow(canvas)
+
         if (flash > 0f) {
             paint.color = (clamp(flash, 0f, 1f) * 255).toInt().shl(24) or 0x00FFFFFF
             canvas.drawRect(0f, 0f, W, H, paint)
         }
+    }
+
+    private fun drawEdgeGlow(canvas: Canvas) {
+        // A radial-ish vignette using concentric stroked rectangles. Cheap
+        // and looks great. Color = current phase; intensity = beat pulse.
+        val phaseColor = if (phase == Phase.LIGHT) colLightA else colDarkA
+        val intensity = (0.20f + 0.40f * beatPulse).coerceIn(0f, 1f)
+        val layers = 6
+        for (i in 0 until layers) {
+            val t = i / layers.toFloat()
+            val inset = t * (W * 0.18f)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = (W * 0.04f) * (1f - t * 0.5f)
+            paint.color = phaseColor
+            paint.alpha = (intensity * (1f - t) * 70f).toInt().coerceIn(0, 255)
+            canvas.drawRect(inset, inset, W - inset, H - inset, paint)
+        }
+        paint.style = Paint.Style.FILL
+        paint.alpha = 255
     }
 
     private fun drawBackground(canvas: Canvas) {
@@ -1005,14 +1029,34 @@ class GameView @JvmOverloads constructor(
         paint.textSize = 16f * density
         val scoreText = "SCORE $score"
         val bestText = "BEST $bestScore"
-        paint.alpha = 180
+        paint.alpha = 200
         canvas.drawText(scoreText, 18f * density, 28f * density, paint)
         val bw = paint.measureText(bestText)
         canvas.drawText(bestText, W - bw - 18f * density, 28f * density, paint)
 
         paint.textSize = 12f * density
         paint.alpha = 160
-        canvas.drawText("LVL $level  COMBO x$combo", 18f * density, 46f * density, paint)
+        canvas.drawText("LVL $level", 18f * density, 46f * density, paint)
+
+        if (combo > 1) {
+            // Combo display
+            val comboText = "x$combo COMBO"
+            val tw = paint.measureText(comboText)
+            paint.alpha = 220
+            paint.color = if (phase == Phase.LIGHT) colLightB else colDarkB
+            canvas.drawText(comboText, (W - tw) / 2f, 28f * density, paint)
+            // Combo timer bar
+            val barW = tw
+            val barX = (W - barW) / 2f
+            val barY = 32f * density
+            paint.color = colWhite
+            paint.alpha = 80
+            canvas.drawRect(barX, barY, barX + barW, barY + 3f * density, paint)
+            val t = (comboTimer / 2.5f).coerceIn(0f, 1f)
+            paint.color = if (phase == Phase.LIGHT) colLightB else colDarkB
+            paint.alpha = 220
+            canvas.drawRect(barX, barY, barX + barW * t, barY + 3f * density, paint)
+        }
     }
 
     private fun drawCenterOverlay(canvas: Canvas) {
