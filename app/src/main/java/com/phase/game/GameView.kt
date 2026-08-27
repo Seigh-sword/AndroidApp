@@ -29,13 +29,10 @@ import kotlin.random.Random
  *   you survive, the more intense it becomes.
  *
  * Controls:
- *   - Single-finger horizontal drag / tilt: move
- *   - Tap with a second finger or any tap on right half: phase shift
- *   - Tap left half: dash
- *
- *   To keep the game simple & fun for thumb play, this implementation uses
- *   touch regions: LEFT third = dash, CENTER third = phase shift, RIGHT third
- *   is reserved for movement direction (dragging).
+ *   - Drag finger: move player (direct positional control).
+ *   - Quick tap (no drag): phase shift between LIGHT and SHADOW.
+ *   - The world also forces a phase shift on every Nth beat, so the player
+ *     must adapt to a constantly shifting rhythm.
  */
 class GameView @JvmOverloads constructor(
     context: Context,
@@ -123,7 +120,6 @@ class GameView @JvmOverloads constructor(
     private var touchStartTime: Long = 0L
     private var touchMoved = false
     private var tapFlash: Float = 0f
-    private var dashCooldown = 0f
     private val tapTimeoutMs = 220L
     private val tapSlopPx = 18f
 
@@ -131,7 +127,6 @@ class GameView @JvmOverloads constructor(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val paintNoAA = Paint()
     private val tmpPath = Path()
-    private val tmpRect = RectF()
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         maskFilter = BlurMaskFilter(24f, BlurMaskFilter.Blur.NORMAL)
     }
@@ -265,7 +260,6 @@ class GameView @JvmOverloads constructor(
         lastBeatTime = 0f
         screenShake = 0f
         flash = 0f
-        dashCooldown = 0f
         spawnLevel()
     }
 
@@ -411,16 +405,6 @@ class GameView @JvmOverloads constructor(
         return true
     }
 
-    private fun doDash(dir: Float) {
-        if (dashCooldown > 0f) return
-        player.vx += dir * H * 0.9f
-        player.vy -= H * 0.25f
-        player.invuln = 0.35f
-        dashCooldown = 0.6f
-        spawnTrail(12, if (phase == Phase.LIGHT) colLightA else colDarkA)
-        lightHaptic(8)
-    }
-
     private fun doPhaseShift() {
         if (phaseEnergy < 0.15f) {
             // out of energy, weak pulse
@@ -491,7 +475,6 @@ class GameView @JvmOverloads constructor(
         flash = (flash - dt * 2.6f).coerceAtLeast(0f)
         tapFlash = (tapFlash - dt * 2.0f).coerceAtLeast(0f)
         screenShake = (screenShake - dt * 30f).coerceAtLeast(0f)
-        dashCooldown = (dashCooldown - dt).coerceAtLeast(0f)
         player.invuln = (player.invuln - dt).coerceAtLeast(0f)
 
         // Refill phase energy slowly, faster on level up
@@ -838,7 +821,6 @@ class GameView @JvmOverloads constructor(
 
     private fun drawPlatforms(canvas: Canvas) {
         for (p in platforms) {
-            val dim = if (p.isLight) "LIGHT" else "SHADOW"
             val isCurrent = p.isLight == (phase == Phase.LIGHT)
             val baseColor = if (p.isLight) colLightA else colDarkA
             val accent = if (p.isLight) colLightB else colDarkB
@@ -868,7 +850,6 @@ class GameView @JvmOverloads constructor(
                     canvas.drawCircle(cx, p.y + p.h / 2f, 2f, paint)
                 }
             }
-            @Suppress("UNUSED_EXPRESSION") dim
         }
 
         // Ground
