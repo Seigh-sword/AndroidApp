@@ -120,8 +120,12 @@ class GameView @JvmOverloads constructor(
     private var activePointerId = -1
     private var touchStartX = 0f
     private var touchStartY = 0f
+    private var touchStartTime: Long = 0L
     private var touchMoved = false
+    private var tapFlash: Float = 0f
     private var dashCooldown = 0f
+    private val tapTimeoutMs = 220L
+    private val tapSlopPx = 18f
 
     // -------- Rendering --------
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -200,7 +204,7 @@ class GameView @JvmOverloads constructor(
         W = w.toFloat()
         H = h.toFloat()
         groundY = H - 80f * resources.displayMetrics.density / 3f
-        gravity = H * 1.6f
+        gravity = H * 1.2f
         if (!initialized) {
             seedStars()
             resetWorld()
@@ -270,16 +274,18 @@ class GameView @JvmOverloads constructor(
         enemies.clear()
         orbs.clear()
 
-        val rng = Random(System.nanoTime())
-        val count = 6 + level
+        val rng = Random(System.nanoTime() + level * 31L)
+        val count = (5 + level).coerceAtMost(11)
+        // Always at least one platform of each phase near the player
+        val phaseOf: (Int) -> Boolean = { idx -> if (level == 1) idx % 2 == 0 else rng.nextBoolean() }
         for (i in 0 until count) {
-            val light = rng.nextBoolean()
+            val light = phaseOf(i)
             val y = if (i == 0) groundY - 20f
-                else (H * 0.18f + rng.nextFloat() * (H * 0.65f))
+                else (H * 0.18f + rng.nextFloat() * (H * 0.62f))
             val x = rng.nextFloat() * (W - 160f) + 80f
             val w = 110f + rng.nextFloat() * 90f
             val h = 16f + rng.nextFloat() * 10f
-            val moving = rng.nextFloat() < 0.35f && i > 0
+            val moving = rng.nextFloat() < 0.30f && i > 0 && level >= 2
             platforms.add(
                 Platform(
                     isLight = light,
@@ -290,12 +296,16 @@ class GameView @JvmOverloads constructor(
             )
         }
 
-        // Spawn enemies — one per platform on average, biased to current phase
-        val enemyCount = 2 + level
+        // Spawn enemies — bias to current phase, but always a few in the
+        // opposite phase so the player has to think about which side to be on.
+        val enemyCount = (1 + level).coerceAtMost(8)
         repeat(enemyCount) {
             val target = platforms.random(rng)
-            val light = if (rng.nextFloat() < 0.6f) phase == Phase.LIGHT else phase == Phase.SHADOW
-            val er = 18f + rng.nextFloat() * 14f
+            // Level 1: 100% in opposite phase (safe at start). Later: more mixed.
+            val opposite = if (level == 1) true
+                else rng.nextFloat() < 0.55f
+            val light = if (opposite) phase != Phase.LIGHT else phase == Phase.LIGHT
+            val er = 18f + rng.nextFloat() * 12f
             val speed = 60f + level * 12f + rng.nextFloat() * 60f
             val dir = if (rng.nextBoolean()) 1f else -1f
             enemies.add(
@@ -351,10 +361,10 @@ class GameView @JvmOverloads constructor(
                 activePointerId = event.getPointerId(idx)
                 touchStartX = x
                 touchStartY = y
+                touchStartTime = System.currentTimeMillis()
                 touchMoved = false
                 lastTouchX = x
                 lastTouchY = y
-                handleTapRegion(x, y)
             }
             MotionEvent.ACTION_MOVE -> {
                 if (state != State.PLAYING) return true
@@ -362,20 +372,35 @@ class GameView @JvmOverloads constructor(
                 if (idx < 0) return true
                 val x = event.getX(idx)
                 val y = event.getY(idx)
-                val dx = x - lastTouchX
-                val dy = y - lastTouchY
-                if (abs(x - touchStartX) > 12f || abs(y - touchStartY) > 12f) touchMoved = true
+                if (abs(x - touchStartX) > tapSlopPx || abs(y - touchStartY) > tapSlopPx) {
+                    touchMoved = true
+                }
                 // Direct positional control feels best on a phone
                 val targetX = x.coerceIn(player.r, W - player.r)
                 val targetY = y.coerceIn(player.r, groundY - player.r)
-                player.vx = (targetX - player.x) * 18f
-                player.vy = (targetY - player.y) * 18f
+                val desiredVx = (targetX - player.x) * 16f
+                val desiredVy = (targetY - player.y) * 16f
+                val maxV = H * 1.4f
+                player.vx = desiredVx.coerceIn(-maxV, maxV)
+                player.vy = desiredVy.coerceIn(-maxV, maxV)
                 lastTouchX = x
                 lastTouchY = y
-                // suppress unused
-                @Suppress("UNUSED_EXPRESSION") dx; @Suppress("UNUSED_EXPRESSION") dy
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                val idx = event.findPointerIndex(
+                    if (event.actionMasked == MotionEvent.ACTION_POINTER_UP) event.actionIndex
+                    else 0
+                )
+                val duration = System.currentTimeMillis() - touchStartTime
+                if (state == State.PLAYING && idx >= 0) {
+                    val upX = event.getX(idx)
+                    val upY = event.getY(idx)
+                    val moved = abs(upX - touchStartX) > tapSlopPx || abs(upY - touchStartY) > tapSlopPx
+                    // A "tap" = quick press without dragging. Triggers phase shift.
+                    if (!moved && duration < tapTimeoutMs) {
+                        doPhaseShift()
+                    }
+                }
                 if (event.actionMasked == MotionEvent.ACTION_UP ||
                     event.actionMasked == MotionEvent.ACTION_CANCEL) {
                     dragging = false
@@ -384,15 +409,6 @@ class GameView @JvmOverloads constructor(
             }
         }
         return true
-    }
-
-    private fun handleTapRegion(x: Float, y: Float) {
-        val third = W / 3f
-        when {
-            x < third -> doDash(if (x < W / 6f) -1f else 1f)
-            x < third * 2f -> doPhaseShift()
-            else -> doDash(1f)
-        }
     }
 
     private fun doDash(dir: Float) {
@@ -410,11 +426,13 @@ class GameView @JvmOverloads constructor(
             // out of energy, weak pulse
             flash = 0.25f
             screenShake = max(screenShake, 4f)
+            tapFlash = 0.6f
             return
         }
         phase = if (phase == Phase.LIGHT) Phase.SHADOW else Phase.LIGHT
         phaseEnergy -= 0.2f
         flash = 0.85f
+        tapFlash = 1f
         screenShake = max(screenShake, 14f)
         lightHaptic(18)
         spawnPhaseBurst()
@@ -471,6 +489,7 @@ class GameView @JvmOverloads constructor(
     private fun update(dt: Float) {
         worldTime += dt
         flash = (flash - dt * 2.6f).coerceAtLeast(0f)
+        tapFlash = (tapFlash - dt * 2.0f).coerceAtLeast(0f)
         screenShake = (screenShake - dt * 30f).coerceAtLeast(0f)
         dashCooldown = (dashCooldown - dt).coerceAtLeast(0f)
         player.invuln = (player.invuln - dt).coerceAtLeast(0f)
@@ -493,11 +512,16 @@ class GameView @JvmOverloads constructor(
         if (lastBeatTime >= beatInterval) {
             lastBeatTime = 0f
             beatPulse = 1f
-            // The world forces a phase shift on every 4th beat (or sooner at high level)
+            // The world forces a phase shift on every Nth beat
             phaseShiftTimer -= beatInterval
             if (phaseShiftTimer <= 0f) {
-                // Auto-shift unless player is in middle of action — this adds rhythm
-                doPhaseShift()
+                // Auto-shift if player has enough energy. This is a forced
+                // dimensional transition that the player must adapt to.
+                if (phaseEnergy >= 0.15f) {
+                    doPhaseShift()
+                    // Brief invulnerability so the shift isn't instantly lethal
+                    player.invuln = max(player.invuln, 0.25f)
+                }
                 val forcedBeats = max(1, 4 - level / 3)
                 phaseShiftTimer = beatInterval * forcedBeats
             }
@@ -658,13 +682,21 @@ class GameView @JvmOverloads constructor(
         if (player.trail.size > 18) player.trail.removeAt(0)
 
         // Level progression
-        val target = level * 200
+        val target = 150 + (level - 1) * 120
         if (score >= target) {
             level += 1
             spawnLevel()
             flash = 0.6f
-            screenShake = max(screenShake, 8f)
-            lightHaptic(25)
+            screenShake = max(screenShake, 10f)
+            lightHaptic(30)
+            // Refill energy on level up
+            phaseEnergy = 1f
+            // Re-place the player safely
+            player.x = W / 2f
+            player.y = groundY - player.r - 10f
+            player.vx = 0f
+            player.vy = 0f
+            player.invuln = 1.0f
         }
     }
 
@@ -739,6 +771,17 @@ class GameView @JvmOverloads constructor(
         drawPhaseEnergyBar(canvas)
         drawHUD(canvas)
         drawCenterOverlay(canvas)
+
+        if (tapFlash > 0f) {
+            // Pulse ring at the player's position when a tap happened
+            val r = (1f - tapFlash) * H * 0.4f + player.r * 1.5f
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 4f
+            paint.color = if (phase == Phase.LIGHT) colLightA else colDarkA
+            paint.alpha = (tapFlash * 200).toInt().coerceIn(0, 255)
+            canvas.drawCircle(player.x, player.y, r, paint)
+            paint.style = Paint.Style.FILL
+        }
 
         canvas.restoreToCount(save)
 
@@ -998,23 +1041,41 @@ class GameView @JvmOverloads constructor(
                 paint.color = titleColor
                 paint.alpha = 230
                 paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                paint.textSize = 92f * resources.displayMetrics.scaledDensity
+                paint.textSize = 96f * resources.displayMetrics.scaledDensity
                 val title = "PHASE"
                 val tw = paint.measureText(title)
-                canvas.drawText(title, (W - tw) / 2f, H * 0.32f, paint)
+                canvas.drawText(title, (W - tw) / 2f, H * 0.30f, paint)
 
                 paint.color = colWhite
                 paint.alpha = 180
-                paint.textSize = 16f * resources.displayMetrics.scaledDensity
-                val sub = "Shift dimensions. Survive the rhythm."
+                paint.textSize = 14f * resources.displayMetrics.scaledDensity
+                val sub = "Two dimensions. One survival."
                 val sw = paint.measureText(sub)
-                canvas.drawText(sub, (W - sw) / 2f, H * 0.32f + 36f * resources.displayMetrics.scaledDensity, paint)
+                canvas.drawText(sub, (W - sw) / 2f, H * 0.30f + 30f * resources.displayMetrics.scaledDensity, paint)
+
+                // Controls
+                paint.alpha = 200
+                paint.textSize = 15f * resources.displayMetrics.scaledDensity
+                val c1 = "DRAG  —  Move"
+                val c2 = "TAP  —  Phase Shift"
+                val cw1 = paint.measureText(c1)
+                val cw2 = paint.measureText(c2)
+                canvas.drawText(c1, (W - cw1) / 2f, H * 0.50f, paint)
+                canvas.drawText(c2, (W - cw2) / 2f, H * 0.50f + 22f * resources.displayMetrics.scaledDensity, paint)
 
                 paint.alpha = (150 + 80 * sin(worldTime * 4f)).toInt().coerceIn(0, 255)
                 paint.textSize = 22f * resources.displayMetrics.scaledDensity
                 val tap = context.getString(R.string.tap_to_start)
                 val tw2 = paint.measureText(tap)
-                canvas.drawText(tap, (W - tw2) / 2f, H * 0.65f, paint)
+                canvas.drawText(tap, (W - tw2) / 2f, H * 0.66f, paint)
+
+                if (bestScore > 0) {
+                    paint.alpha = 200
+                    paint.textSize = 16f * resources.displayMetrics.scaledDensity
+                    val best = "BEST  $bestScore"
+                    val bw = paint.measureText(best)
+                    canvas.drawText(best, (W - bw) / 2f, H * 0.74f, paint)
+                }
             }
             State.GAME_OVER -> {
                 paint.color = colDarkA
