@@ -39,7 +39,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/arena/') }}
-          gradle-home-cache-cleanup: true
+          gradle-home-cache-cleanup: false  # Temporarily disable cleanup
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
