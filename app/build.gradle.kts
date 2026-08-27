@@ -32,12 +32,20 @@ android {
     }
 
     signingConfigs {
+        // Always define a release signing config. If keystore.properties is
+        // present (CI), populate it from there. Otherwise the release config
+        // stays empty, and we'll fall back to the debug signing config in
+        // the release build type below.
         create("release") {
             if (keystorePropsFile.exists()) {
-                storeFile = file(keystoreProps.getProperty("storeFile"))
+                val storeFilePath = keystoreProps.getProperty("storeFile")
+                if (!storeFilePath.isNullOrBlank()) {
+                    storeFile = rootProject.file(storeFilePath)
+                }
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
+                println("[PHASE] Loaded release signing config from keystore.properties")
             }
         }
     }
@@ -52,7 +60,8 @@ android {
             // Sign release with the keystore defined in keystore.properties if
             // present; otherwise fall back to the debug signing config so that
             // local `assembleRelease` still produces an installable APK.
-            signingConfig = if (keystorePropsFile.exists())
+            signingConfig = if (keystorePropsFile.exists() &&
+                keystoreProps.getProperty("storeFile") != null)
                 signingConfigs.getByName("release")
             else
                 signingConfigs.getByName("debug")
