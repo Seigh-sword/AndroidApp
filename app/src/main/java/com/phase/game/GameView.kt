@@ -177,6 +177,12 @@ class GameView @JvmOverloads constructor(
         }
     }
 
+    // -------- Sound (procedural SFX) --------
+    private val sound = SoundEngine().apply {
+        init()
+        setMuted(prefs.getBoolean("muted", false))
+    }
+
     init {
         setBackgroundColor(colBg1)
         isFocusable = true
@@ -219,6 +225,7 @@ class GameView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         stop()
+        sound.release()
     }
 
     // -------- World setup --------
@@ -411,6 +418,7 @@ class GameView @JvmOverloads constructor(
             flash = 0.25f
             screenShake = max(screenShake, 4f)
             tapFlash = 0.6f
+            sound.playTap()
             return
         }
         phase = if (phase == Phase.LIGHT) Phase.SHADOW else Phase.LIGHT
@@ -419,6 +427,7 @@ class GameView @JvmOverloads constructor(
         tapFlash = 1f
         screenShake = max(screenShake, 14f)
         lightHaptic(18)
+        sound.playPhaseShift()
         spawnPhaseBurst()
     }
 
@@ -495,6 +504,7 @@ class GameView @JvmOverloads constructor(
         if (lastBeatTime >= beatInterval) {
             lastBeatTime = 0f
             beatPulse = 1f
+            sound.playBeat()
             // The world forces a phase shift on every Nth beat
             phaseShiftTimer -= beatInterval
             if (phaseShiftTimer <= 0f) {
@@ -646,6 +656,7 @@ class GameView @JvmOverloads constructor(
                 phaseEnergy = (phaseEnergy + 0.15f).coerceAtMost(1f)
                 spawnOrbBurst(o.x, o.y, if (phase == Phase.LIGHT) colLightA else colDarkA)
                 lightHaptic(10)
+                sound.playOrb()
                 oit.remove()
             }
         }
@@ -674,6 +685,7 @@ class GameView @JvmOverloads constructor(
             flash = 0.6f
             screenShake = max(screenShake, 10f)
             lightHaptic(30)
+            sound.playLevelUp()
             // Refill energy on level up
             phaseEnergy = 1f
             // Re-place the player safely
@@ -716,6 +728,7 @@ class GameView @JvmOverloads constructor(
         flash = 1f
         screenShake = 26f
         lightHaptic(60)
+        sound.playGameOver()
         spawnExplosion(player.x, player.y)
     }
 
@@ -1145,6 +1158,7 @@ class GameView @JvmOverloads constructor(
 
     fun toggleMute(): Boolean {
         muted = !muted
+        sound.setMuted(muted)
         prefs.edit().putBoolean("muted", muted).apply()
         return muted
     }
