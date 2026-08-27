@@ -541,6 +541,9 @@ class GameView @JvmOverloads constructor(
         player.x += player.vx * dt
         player.y += player.vy * dt
 
+        // Platform collisions (only in current phase)
+        var onPlatform = false
+
         // Bounds
         if (player.x < player.r) { player.x = player.r; player.vx = abs(player.vx) * 0.4f }
         if (player.x > W - player.r) { player.x = W - player.r; player.vx = -abs(player.vx) * 0.4f }
@@ -552,9 +555,6 @@ class GameView @JvmOverloads constructor(
             }
         }
         if (player.y < player.r) { player.y = player.r; player.vy = abs(player.vy) * 0.4f }
-
-        // Platform collisions (only in current phase)
-        var onPlatform = false
         for (p in platforms) {
             if (p.isLight != (phase == Phase.LIGHT)) continue
             val px = p.x
