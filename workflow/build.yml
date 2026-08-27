@@ -60,12 +60,12 @@ jobs:
             -dname "CN=PHASE Game, OU=Game, O=PHASE, L=Local, S=Local, C=US"
 
           # Tell the Android Gradle Plugin about the keystore
-          cat > keystore.properties <<EOF
-          storeFile=app/keystore/release.jks
-          storePassword=$STORE_PASS
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASS
-          EOF
+          {
+            echo "storeFile=$KEYSTORE_PATH"
+            echo "storePassword=$STORE_PASS"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASS"
+          } > keystore.properties
           cat keystore.properties
 
       - name: Build debug APK (sanity check)
