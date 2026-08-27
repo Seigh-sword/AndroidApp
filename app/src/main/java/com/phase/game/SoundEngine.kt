@@ -70,8 +70,8 @@ class SoundEngine {
             }
             sfxPhaseShift = renderSweep(220f, 880f, 0.18f, 0.7f, kind = SweepKind.RISE)
             sfxOrb = renderPluck(880f, 0.15f, 0.7f)
-            sfxLevelUp = renderArpeggio(doubleArrayOf(523.25, 659.25, 783.99, 1046.5), 0.10, 0.6)
-            sfxGameOver = renderArpeggio(doubleArrayOf(440.0, 349.23, 261.63, 174.61), 0.16, 0.7)
+            sfxLevelUp = renderArpeggio(doubleArrayOf(523.25, 659.25, 783.99, 1046.5), 0.10f, 0.6f)
+            sfxGameOver = renderArpeggio(doubleArrayOf(440.0, 349.23, 261.63, 174.61), 0.16f, 0.7f)
             sfxBeat = renderPluck(110f, 0.06f, 0.35f)
             sfxTap = renderPluck(660f, 0.05f, 0.5f)
             initialized = true

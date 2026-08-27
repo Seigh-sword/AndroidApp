@@ -79,7 +79,7 @@ class GameView @JvmOverloads constructor(
     // -------- Entities --------
     private data class Platform(
         val isLight: Boolean,        // belongs to which dimension
-        val x: Float, val y: Float,
+        var x: Float, var y: Float,
         val w: Float, val h: Float,
         val moving: Boolean,
         var phaseOff: Float
@@ -956,7 +956,7 @@ class GameView @JvmOverloads constructor(
         if (state == State.MENU) {
             // floating idle
             val cy = H * 0.45f + sin(worldTime * 1.6f) * 18f
-            drawPlayerAt(player.x, cy, alpha = 200)
+            drawPlayerAt(canvas, player.x, cy, alpha = 200)
             return
         }
         // trail
@@ -969,10 +969,10 @@ class GameView @JvmOverloads constructor(
             canvas.drawCircle(p.x, p.y, player.r * (0.35f + t * 0.5f), paint)
         }
         if (player.invuln > 0f && (player.invuln * 20f).toInt() % 2 == 0) return
-        drawPlayerAt(player.x, player.y, alpha = 255)
+        drawPlayerAt(canvas, player.x, player.y, alpha = 255)
     }
 
-    private fun drawPlayerAt(x: Float, y: Float, alpha: Int) {
+    private fun drawPlayerAt(canvas: Canvas, x: Float, y: Float, alpha: Int) {
         val color = if (phase == Phase.LIGHT) colLightA else colDarkA
         val accent = if (phase == Phase.LIGHT) colLightB else colDarkB
 
