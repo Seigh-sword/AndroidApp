@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="void_black">#FF05060A</color>
+    <color name="void_deep">#FF0B0E1A</color>
+    <color name="phase_light_a">#FF8BF0FF</color>
+    <color name="phase_light_b">#FFB17BFF</color>
+    <color name="phase_dark_a">#FFFF5572</color>
+    <color name="phase_dark_b">#FFFFB14B</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="translucent">#80FFFFFF</color>
+</resources>

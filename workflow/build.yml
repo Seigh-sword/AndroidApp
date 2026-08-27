@@ -1,0 +1,114 @@
+name: Build PHASE APK
+
+on:
+  push:
+    branches: [ main, arena/** ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build signed APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # Stable API 34 platform + build-tools 34.0.0
+          api-level: 34
+          build-tools-version: 34.0.0
+          ndk: ''
+
+      - name: Cache Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/arena/') }}
+          gradle-home-cache-cleanup: true
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Generate signing keystore
+        id: keystore
+        run: |
+          mkdir -p app/keystore
+          KEYSTORE_PATH="app/keystore/release.jks"
+          KEY_ALIAS="phase"
+          KEY_PASS="phasegame"
+          STORE_PASS="phasegame"
+          keytool -genkey -v \
+            -keystore "$KEYSTORE_PATH" \
+            -alias "$KEY_ALIAS" \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$STORE_PASS" -keypass "$KEY_PASS" \
+            -dname "CN=PHASE Game, OU=Game, O=PHASE, L=Local, S=Local, C=US"
+
+          # Tell the Android Gradle Plugin about the keystore
+          cat > keystore.properties <<EOF
+          storeFile=app/keystore/release.jks
+          storePassword=$STORE_PASS
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASS
+          EOF
+          cat keystore.properties
+
+      - name: Build debug APK (sanity check)
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Build signed release APK
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Verify APK
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          ls -la "$APK"
+          # Use aapt to print package + permissions
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt2 | head -n1)
+          "$AAPT" dump badging "$APK" | head -20
+
+      - name: Rename APK with version + date
+        id: rename
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          TS=$(date -u +"%Y%m%d-%H%M%S")
+          NEW="PHASE-${TS}.apk"
+          mv "$APK" "$NEW"
+          echo "new_name=$NEW" >> "$GITHUB_OUTPUT"
+          echo "artifact_path=$NEW" >> "$GITHUB_OUTPUT"
+          ls -la "$NEW"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PHASE-APK
+          path: ${{ steps.rename.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create/Update draft GitHub Release
+        if: startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: phase-latest-${{ github.run_number }}
+          name: "PHASE Android build #${{ github.run_number }}"
+          draft: true
+          generate_release_notes: true
+          files: ${{ steps.rename.outputs.artifact_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
